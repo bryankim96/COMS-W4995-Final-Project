@@ -20,4 +20,9 @@ def get_conditioning_vector(embedding,conditioning_vector_size=128):
     # sample from the distribution to get the conditioning vector
     conditioning_vector = dist.sample()
 
-    return conditioning_vector
+    # compute KL divergence between the constructed distribution and a
+    # standard normal distribution
+    # for use as a regularization term in the generator loss
+    kl_div = tf.distributions.kl_divergence(dist, tf.distributions.Normal(loc=0.0,scale=1.0))
+
+    return conditioning_vector, kl_div
