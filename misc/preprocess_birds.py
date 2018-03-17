@@ -3,7 +3,6 @@ from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
 
-# import tensorflow as tf
 import numpy as np
 import os
 import pickle
@@ -11,12 +10,7 @@ from misc.utils import get_image
 import skimage.transform
 import pandas as pd
 
-# from glob import glob
-
-# TODO: 1. current label is temporary, need to change according to real label
-#       2. Current, only split the data into train, need to handel train, test
-
-LR_HR_RETIO = 4
+LR_HR_RATIO = 4
 IMSIZE = 256
 LOAD_SIZE = int(IMSIZE * 76 / 64)
 BIRD_DIR = 'Data/birds'
@@ -56,7 +50,7 @@ def load_bbox(data_dir):
 def save_data_list(inpath, outpath, filenames, filename_bbox):
     hr_images = []
     lr_images = []
-    lr_size = int(LOAD_SIZE / LR_HR_RETIO)
+    lr_size = int(LOAD_SIZE / LR_HR_RATIO)
     cnt = 0
     for key in filenames:
         bbox = filename_bbox[key]
