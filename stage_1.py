@@ -14,9 +14,22 @@ IMAGE_SHAPE = 64
 GENERATOR_DIM = 128
 DISCRIMINATOR_DIM = 64
 
+DATA_DIR = "./Data/birds"
+
+TRAIN_DIR = DATA_DIR + "/train"
+IMAGE_TRAIN = TRAIN_DIR + "/76images.pickle"
+EMBEDDING_TRAIN = TRAIN_DIR + "/char-CNN-RNN-embeddings.pickle"
+
+TEST_DIR = DATA_DIR + "/test"
+IMAGE_TEST = TEST_DIR + "/76images.pickle"
+EMBEDDING_TEST = TEST_DIR + "/char-CNN-RNN-embeddings.pickle"
+
 # Get inputs
-images = 
-embeddings = 
+images_train = pickle.load( open( IMAGE_TRAIN, "rb" ) )
+embeddings_train = pickle.load( open( EMBEDDING_TRAIN, "rb" ) )
+
+images_test = pickle.load( open( IMAGE_TEST, "rb" ) )
+embeddings_test = pickle.load( open( EMBEDDING_TEST, "rb" ) )
 
 # get randomly sampled noise/latent vector
 z = tf.random_normal([BATCH_SIZE, Z_DIM])
