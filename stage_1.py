@@ -315,18 +315,19 @@ def predict_input_fn():
 
     return batch_images, batch_embeddings
         
-# train
-gan_estimator.train(train_input_fn, max_steps=NUM_STEPS)
+if __name__=="__main__":
+    # train
+    gan_estimator.train(train_input_fn, max_steps=NUM_STEPS)
 
-# predict (generate) and visualize
-prediction_gen = gan_estimator.predict(predict_input_fn, hooks=[tf.train.StopAtStepHook(last_step=1)])
-predictions = [prediction_gen.next() for _ in xrange(36)]
+    # predict (generate) and visualize
+    prediction_gen = gan_estimator.predict(predict_input_fn, hooks=[tf.train.StopAtStepHook(last_step=1)])
+    predictions = [prediction_gen.next() for _ in xrange(36)]
 
-# Visualize 36 images together
-image_rows = [np.concatenate(predictions[i:i+6], axis=0) for i in range(0, 36, 6)]
-tiled_images = np.concatenate(image_rows, axis=1)
+    # Visualize 36 images together
+    image_rows = [np.concatenate(predictions[i:i+6], axis=0) for i in range(0, 36, 6)]
+    tiled_images = np.concatenate(image_rows, axis=1)
 
-# Visualize.
-plt.axis('off')
-plt.imshow(np.squeeze(tiled_images), cmap='gray')
+    # Visualize.
+    plt.axis('off')
+    plt.imshow(np.squeeze(tiled_images), cmap='gray')
 
