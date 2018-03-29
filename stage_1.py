@@ -19,12 +19,6 @@ DATA_DIR = "./Data/birds"
 TRAIN_DIR = DATA_DIR + "/train"
 TEST_DIR = DATA_DIR + "/test"
 
-# get randomly sampled noise/latent vector
-z = tf.random_normal([BATCH_SIZE, Z_DIM])
-# get conditioning vector (from embedding) and KL divergence for use as a
-# regularization term in the generator loss
-conditioning_vector, kl_div = get_conditioning_vector(embeddings, conditioning_vector_size=EMBEDDING_DIM)
-
 # NOTE: ordering of Batch norm and ReLU differs from original paper implementation
 # see https://github.com/ducha-aiki/caffenet-benchmark/blob/master/batchnorm.md
 # here we apply batch normalization after the activation, rather than before as the
@@ -294,9 +288,15 @@ def train_input_fn():
     dataset = dataset.batch(BATCH_SIZE)
     iterator = dataset.make_initializable_iterator()
 
-    batch_features, batch_labels = iterator.get_next()
+    batch_images, batch_embeddings = iterator.get_next()
 
-    return batch_images, batch_embeddings 
+    # get randomly sampled noise/latent vector
+    batch_z = tf.random_normal([BATCH_SIZE, Z_DIM])
+    # get conditioning vector (from embedding) and KL divergence for use as a
+    # regularization term in the generator loss
+    batch_conditioning_vectors, kl_div = get_conditioning_vector(batch_embeddings, conditioning_vector_size=EMBEDDING_DIM)
+
+    return batch_z, batch_images, batch_conditioning_vectors, kl_div 
 
 def predict_input_fn():
 
@@ -307,7 +307,11 @@ def predict_input_fn():
     dataset = dataset.batch(BATCH_SIZE)
     iterator = dataset.make_initializable_iterator()
 
-    batch_features, batch_labels = iterator.get_next()
+    batch_images, batch_embeddings = iterator.get_next()
+
+    # get conditioning vector (from embedding) and KL divergence for use as a
+    # regularization term in the generator loss
+    batch_conditioning_vectors, kl_div = get_conditioning_vector(batch_embeddings, conditioning_vector_size=EMBEDDING_DIM)
 
     return batch_images, batch_embeddings
         
