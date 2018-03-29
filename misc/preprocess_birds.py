@@ -91,7 +91,7 @@ def save_data_tfrecords(inpath, outpath, filenames, filename_bbox):
 
     print('Done loading. %d images loaded' % cnt)
 
-def convert_birds_dataset_pickle(inpath):
+def convert_birds_dataset_tfrecords(inpath):
     # Load dictionary between image filename to its bbox
     filename_bbox = load_bbox(inpath)
     # ## For Train data
@@ -106,4 +106,4 @@ def convert_birds_dataset_pickle(inpath):
 
 
 if __name__ == '__main__':
-    convert_birds_dataset_pickle(BIRD_DIR)
+    convert_birds_dataset_tfrecords(BIRD_DIR)
