@@ -17,19 +17,7 @@ DISCRIMINATOR_DIM = 64
 DATA_DIR = "./Data/birds"
 
 TRAIN_DIR = DATA_DIR + "/train"
-IMAGE_TRAIN = TRAIN_DIR + "/76images.pickle"
-EMBEDDING_TRAIN = TRAIN_DIR + "/char-CNN-RNN-embeddings.pickle"
-
 TEST_DIR = DATA_DIR + "/test"
-IMAGE_TEST = TEST_DIR + "/76images.pickle"
-EMBEDDING_TEST = TEST_DIR + "/char-CNN-RNN-embeddings.pickle"
-
-# Get inputs
-images_train = pickle.load( open( IMAGE_TRAIN, "rb" ) )
-embeddings_train = pickle.load( open( EMBEDDING_TRAIN, "rb" ) )
-
-images_test = pickle.load( open( IMAGE_TEST, "rb" ) )
-embeddings_test = pickle.load( open( EMBEDDING_TEST, "rb" ) )
 
 # get randomly sampled noise/latent vector
 z = tf.random_normal([BATCH_SIZE, Z_DIM])
@@ -282,14 +270,46 @@ gan_estimator = tfgan.estimator.GANEstimator(
     discriminator_optimizer=tf.train.AdamOptimizer(0.0001, 0.5),
     add_summaries=tfgan.estimator.SummaryType.IMAGES)
 
+
+def _parse_function(example_proto):
+    features = {"image": tf.FixedLenFeature((), tf.string, default_value=""),
+                "embedding": tf.FixedLenFeature((), tf.string, default_value=0)}
+    parsed_features = tf.parse_single_example(example_proto, features)
+
+    image = tf.decode_raw(parsed_features['image'], tf.float32)
+    image = tf.reshape(image, [76,76,3])
+
+    embedding = tf.decode_raw(parsed_features['embedding'], tf.float32)
+    embedding = tf.reshape(embedding, [1024])
+
+    return image, embedding
+
 # train input function
 def train_input_fn():
 
-    return None
+    train_filenames = [TRAIN_DIR + '/data.tfrecord']
+    train_dataset = tf.data.TFRecordDataset(train_filenames)
+    dataset = dataset.map(_parse_function, num_parallel_calls=4)
+    dataset = dataset.repeat()
+    dataset = dataset.batch(BATCH_SIZE)
+    iterator = dataset.make_initializable_iterator()
+
+    batch_features, batch_labels = iterator.get_next()
+
+    return batch_images, batch_embeddings 
 
 def predict_input_fn():
 
-    return None
+    test_filenames = [TEST_DIR + '/data.tfrecord']
+    test_dataset = tf.data.TFRecordDataset(test_filenames)
+    dataset = dataset.map(_parse_function, num_parallel_calls=4)
+    dataset = dataset.repeat()
+    dataset = dataset.batch(BATCH_SIZE)
+    iterator = dataset.make_initializable_iterator()
+
+    batch_features, batch_labels = iterator.get_next()
+
+    return batch_images, batch_embeddings
         
 # train
 gan_estimator.train(train_input_fn, max_steps=NUM_STEPS)
