@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pickle
 
+from conditioning import get_conditioning_vector
+
 tfgan = tf.contrib.gan
 
 BATCH_SIZE = 64
@@ -23,6 +25,8 @@ KL_REG_LAMBDA = 0.01
 GENERATOR_DIM = 128
 # size/num_parameters factor for discriminator (number of filters)
 DISCRIMINATOR_DIM = 64
+
+NUM_STEPS = 100
 
 DATA_DIR = "./Data/birds"
 
@@ -277,7 +281,7 @@ gan_estimator = tfgan.estimator.GANEstimator(
 
 def _parse_function(example_proto):
     features = {"image": tf.FixedLenFeature((), tf.string, default_value=""),
-                "embedding": tf.FixedLenFeature((), tf.string, default_value=0)}
+                "embedding": tf.FixedLenFeature((), tf.string, default_value="")}
     parsed_features = tf.parse_single_example(example_proto, features)
 
     image = tf.decode_raw(parsed_features['image'], tf.float32)
@@ -292,7 +296,7 @@ def _parse_function(example_proto):
 def train_input_fn():
 
     train_filenames = [TRAIN_DIR + '/data.tfrecord']
-    train_dataset = tf.data.TFRecordDataset(train_filenames)
+    dataset = tf.data.TFRecordDataset(train_filenames)
     dataset = dataset.map(_parse_function, num_parallel_calls=4)
     dataset = dataset.repeat()
     dataset = dataset.batch(BATCH_SIZE)
@@ -311,7 +315,7 @@ def train_input_fn():
 def predict_input_fn():
 
     test_filenames = [TEST_DIR + '/data.tfrecord']
-    test_dataset = tf.data.TFRecordDataset(test_filenames)
+    dataset = tf.data.TFRecordDataset(test_filenames)
     dataset = dataset.map(_parse_function, num_parallel_calls=4)
     dataset = dataset.repeat()
     dataset = dataset.batch(BATCH_SIZE)
@@ -325,18 +329,19 @@ def predict_input_fn():
 
     return batch_images, batch_embeddings
         
-# train
-gan_estimator.train(train_input_fn, max_steps=NUM_STEPS)
+if __name__=="__main__":
+    # train
+    gan_estimator.train(train_input_fn, max_steps=NUM_STEPS)
 
-# predict (generate) and visualize
-prediction_gen = gan_estimator.predict(predict_input_fn, hooks=[tf.train.StopAtStepHook(last_step=1)])
-predictions = [prediction_gen.next() for _ in xrange(36)]
+    # predict (generate) and visualize
+    prediction_gen = gan_estimator.predict(predict_input_fn, hooks=[tf.train.StopAtStepHook(last_step=1)])
+    predictions = [prediction_gen.next() for _ in xrange(36)]
 
-# Visualize 36 images together
-image_rows = [np.concatenate(predictions[i:i+6], axis=0) for i in range(0, 36, 6)]
-tiled_images = np.concatenate(image_rows, axis=1)
+    # Visualize 36 images together
+    image_rows = [np.concatenate(predictions[i:i+6], axis=0) for i in range(0, 36, 6)]
+    tiled_images = np.concatenate(image_rows, axis=1)
 
-# Visualize.
-plt.axis('off')
-plt.imshow(np.squeeze(tiled_images), cmap='gray')
+    # Visualize.
+    plt.axis('off')
+    plt.imshow(np.squeeze(tiled_images), cmap='gray')
 
