@@ -15,6 +15,13 @@ IMSIZE = 256
 LOAD_SIZE = int(IMSIZE * 76 / 64)
 BIRD_DIR = 'Data/birds'
 
+def load_embeddings(data_dir):
+    filepath = data_dir + 'char-CNN-RNN-embeddings.pickle'
+    with open(filepath, 'rb') as f:
+        embeddings = pickle.load(f)
+    print('Load embeddings from: %s (%d)' % (filepath, len(embeddings)))
+    return embeddings
+
 
 def load_filenames(data_dir):
     filepath = data_dir + 'filenames.pickle'
@@ -47,35 +54,42 @@ def load_bbox(data_dir):
     return filename_bbox
 
 
-def save_data_list(inpath, outpath, filenames, filename_bbox):
-    hr_images = []
-    lr_images = []
-    lr_size = int(LOAD_SIZE / LR_HR_RATIO)
+def save_data_tfrecords(inpath, outpath, filenames, filename_bbox):
+    
+    # open the TFRecords file
+    writer = tf.python_io.TFRecordWriter(outpath + 'data.tfrecord')
+    
+    # get list of embeddings
+    # list of len NUM_IMAGES of numpy arrays of shape [NUM_CAPTIONS, 1024]
+    embeddings = load_embeddings(inpath)
     cnt = 0
-    for key in filenames:
+    for i, key in enumerate(filenames):
         bbox = filename_bbox[key]
         f_name = '%s/CUB_200_2011/images/%s.jpg' % (inpath, key)
         img = get_image(f_name, LOAD_SIZE, is_crop=True, bbox=bbox)
-        img = img.astype('uint8')
-        hr_images.append(img)
-        lr_img = skimage.transform.resize(img, [lr_size, lr_size], order=3)
-        lr_images.append(lr_img)
+        img = img.astype(np.float32)
+        
+        # randomly sample 4 captions and average to get a representative embedding
+        np.random.shuffle(embeddings[i])
+        selected_embeddings = embeddings[i][:4]
+        avg_embedding = np.mean(selected_embeddings, axis=0)
+
+        # Create features
+        features = {'embedding': tf.train.Feature(bytes_list=tf.train.BytesList(value=tf.compat.as_bytes(avg_embedding.to_string))),
+                    'image': tf.train.Feature(bytes_list=tf.train.BytesList(value=tf.compat.as_bytes(img.tostring())))
+                    }
+
+        # Create an example protocol buffer
+        example = tf.train.Example(features=tf.train.Features(feature=features))
+                
+        # Serialize to string and write on the file
+        writer.write(example.SerializeToString())
+
         cnt += 1
         if cnt % 100 == 0:
-            print('Load %d......' % cnt)
-    #
-    print('images', len(hr_images), hr_images[0].shape, lr_images[0].shape)
-    #
-    outfile = outpath + str(LOAD_SIZE) + 'images.pickle'
-    with open(outfile, 'wb') as f_out:
-        pickle.dump(hr_images, f_out)
-        print('save to: ', outfile)
-    #
-    outfile = outpath + str(lr_size) + 'images.pickle'
-    with open(outfile, 'wb') as f_out:
-        pickle.dump(lr_images, f_out)
-        print('save to: ', outfile)
+            print('Loaded %d......' % cnt)
 
+    print('Done loading. %d images loaded' % cnt)
 
 def convert_birds_dataset_pickle(inpath):
     # Load dictionary between image filename to its bbox
@@ -83,12 +97,12 @@ def convert_birds_dataset_pickle(inpath):
     # ## For Train data
     train_dir = os.path.join(inpath, 'train/')
     train_filenames = load_filenames(train_dir)
-    save_data_list(inpath, train_dir, train_filenames, filename_bbox)
+    save_data_tfrecords(inpath, train_dir, train_filenames, filename_bbox)
 
     # ## For Test data
     test_dir = os.path.join(inpath, 'test/')
     test_filenames = load_filenames(test_dir)
-    save_data_list(inpath, test_dir, test_filenames, filename_bbox)
+    save_data_tfrecords(inpath, test_dir, test_filenames, filename_bbox)
 
 
 if __name__ == '__main__':
