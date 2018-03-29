@@ -5,29 +5,17 @@ import pickle
 
 tfgan = tf.contrib.gan
 
-BATCH_SIZE = 64
-
 # output shape of generator images
 IMAGE_SHAPE = 64
 
-# dimension of z (noise) vector for generator input
-Z_DIM = 100
 # dimension of the compressed embedding/ conditioning vector
 # input to both generator and discriminator
 EMBEDDING_DIM = 128
-# size factor for the KL-divergence regularization term
-# in the stage 1 generator loss
-KL_REG_LAMBDA = 0.01
 
 # size/num_parameters factor for generator (number of filters)
 GENERATOR_DIM = 128
 # size/num_parameters factor for discriminator (number of filters)
 DISCRIMINATOR_DIM = 64
-
-DATA_DIR = "./Data/birds"
-
-TRAIN_DIR = DATA_DIR + "/train"
-TEST_DIR = DATA_DIR + "/test"
 
 # NOTE: ordering of Batch norm and ReLU differs from original paper implementation
 # see https://github.com/ducha-aiki/caffenet-benchmark/blob/master/batchnorm.md
