@@ -4,6 +4,7 @@ from __future__ import print_function
 from __future__ import unicode_literals
 
 import numpy as np
+import tensorflow as tf
 import os
 import pickle
 from misc.utils import get_image
@@ -13,7 +14,7 @@ import pandas as pd
 LR_HR_RATIO = 4
 IMSIZE = 256
 LOAD_SIZE = int(IMSIZE * 76 / 64)
-BIRD_DIR = 'Data/birds'
+BIRD_DIR = 'Data/birds/'
 
 def load_embeddings(data_dir):
     filepath = data_dir + 'char-CNN-RNN-embeddings.pickle'
@@ -61,7 +62,8 @@ def save_data_tfrecords(inpath, outpath, filenames, filename_bbox):
     
     # get list of embeddings
     # list of len NUM_IMAGES of numpy arrays of shape [NUM_CAPTIONS, 1024]
-    embeddings = load_embeddings(inpath)
+    embeddings = load_embeddings(outpath)
+
     cnt = 0
     for i, key in enumerate(filenames):
         bbox = filename_bbox[key]
@@ -73,9 +75,10 @@ def save_data_tfrecords(inpath, outpath, filenames, filename_bbox):
         np.random.shuffle(embeddings[i])
         selected_embeddings = embeddings[i][:4]
         avg_embedding = np.mean(selected_embeddings, axis=0)
+        avg_embedding = avg_embedding.astype(np.float32)
 
         # Create features
-        features = {'embedding': tf.train.Feature(bytes_list=tf.train.BytesList(value=tf.compat.as_bytes(avg_embedding.to_string))),
+        features = {'embedding': tf.train.Feature(bytes_list=tf.train.BytesList(value=tf.compat.as_bytes(avg_embedding.tostring()))),
                     'image': tf.train.Feature(bytes_list=tf.train.BytesList(value=tf.compat.as_bytes(img.tostring())))
                     }
 
