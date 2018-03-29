@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pickle
 
+from conditioning import get_conditioning_vector
+
 tfgan = tf.contrib.gan
 
 Z_DIM = 100
@@ -13,6 +15,8 @@ KL_REG_LAMBDA = 0.01
 IMAGE_SHAPE = 64
 GENERATOR_DIM = 128
 DISCRIMINATOR_DIM = 64
+
+NUM_STEPS = 100
 
 DATA_DIR = "./Data/birds"
 
@@ -267,7 +271,7 @@ gan_estimator = tfgan.estimator.GANEstimator(
 
 def _parse_function(example_proto):
     features = {"image": tf.FixedLenFeature((), tf.string, default_value=""),
-                "embedding": tf.FixedLenFeature((), tf.string, default_value=0)}
+                "embedding": tf.FixedLenFeature((), tf.string, default_value="")}
     parsed_features = tf.parse_single_example(example_proto, features)
 
     image = tf.decode_raw(parsed_features['image'], tf.float32)
@@ -282,7 +286,7 @@ def _parse_function(example_proto):
 def train_input_fn():
 
     train_filenames = [TRAIN_DIR + '/data.tfrecord']
-    train_dataset = tf.data.TFRecordDataset(train_filenames)
+    dataset = tf.data.TFRecordDataset(train_filenames)
     dataset = dataset.map(_parse_function, num_parallel_calls=4)
     dataset = dataset.repeat()
     dataset = dataset.batch(BATCH_SIZE)
@@ -301,7 +305,7 @@ def train_input_fn():
 def predict_input_fn():
 
     test_filenames = [TEST_DIR + '/data.tfrecord']
-    test_dataset = tf.data.TFRecordDataset(test_filenames)
+    dataset = tf.data.TFRecordDataset(test_filenames)
     dataset = dataset.map(_parse_function, num_parallel_calls=4)
     dataset = dataset.repeat()
     dataset = dataset.batch(BATCH_SIZE)

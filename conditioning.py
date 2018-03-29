@@ -15,7 +15,7 @@ def get_conditioning_vector(embedding,conditioning_vector_size=128):
     # with the provided mean and stddevs 
     
     # consider using truncated normal?
-    dist = tf.contrib.distributions.MultivariateNormalDiag(loc=mu, scale=sigma)
+    dist = tf.contrib.distributions.MultivariateNormalDiag(loc=mu, scale_diag=sigma)
 
     # sample from the distribution to get the conditioning vector
     conditioning_vector = dist.sample()
@@ -23,6 +23,8 @@ def get_conditioning_vector(embedding,conditioning_vector_size=128):
     # compute KL divergence between the constructed distribution and a
     # standard normal distribution
     # for use as a regularization term in the generator loss
-    kl_div = tf.distributions.kl_divergence(dist, tf.distributions.Normal(loc=0.0,scale=1.0))
+    zeros = tf.constant(0.0, shape=[conditioning_vector_size])
+    ones = tf.constant(1.0, shape=[conditioning_vector_size])
+    kl_div = tf.distributions.kl_divergence(dist, tf.contrib.distributions.MultivariateNormalDiag(loc=zeros, scale_diag=ones))
 
     return conditioning_vector, kl_div
