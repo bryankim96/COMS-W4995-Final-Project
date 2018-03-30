@@ -7,19 +7,20 @@ import numpy as np
 import tensorflow as tf
 import os
 import pickle
-from misc.utils import get_image
-import skimage.transform
+
+from utils import get_image
+
 import pandas as pd
 
 LR_HR_RATIO = 4
 IMSIZE = 256
 LOAD_SIZE = int(IMSIZE * 76 / 64)
-BIRD_DIR = 'Data/birds/'
+BIRD_DIR = '../Data/birds/'
 
 def load_embeddings(data_dir):
     filepath = data_dir + 'char-CNN-RNN-embeddings.pickle'
     with open(filepath, 'rb') as f:
-        embeddings = pickle.load(f)
+        embeddings = pickle.load(f,encoding='latin1')
     print('Load embeddings from: %s (%d)' % (filepath, len(embeddings)))
     return embeddings
 
@@ -27,7 +28,7 @@ def load_embeddings(data_dir):
 def load_filenames(data_dir):
     filepath = data_dir + 'filenames.pickle'
     with open(filepath, 'rb') as f:
-        filenames = pickle.load(f)
+        filenames = pickle.load(f,encoding='latin1')
     print('Load filenames from: %s (%d)' % (filepath, len(filenames)))
     return filenames
 
@@ -45,7 +46,7 @@ def load_bbox(data_dir):
     #
     filename_bbox = {img_file[:-4]: [] for img_file in filenames}
     numImgs = len(filenames)
-    for i in xrange(0, numImgs):
+    for i in range(0, numImgs):
         # bbox = [x-left, y-top, width, height]
         bbox = df_bounding_boxes.iloc[i][1:].tolist()
 
@@ -78,8 +79,8 @@ def save_data_tfrecords(inpath, outpath, filenames, filename_bbox):
         avg_embedding = avg_embedding.astype(np.float32)
 
         # Create features
-        features = {'embedding': tf.train.Feature(bytes_list=tf.train.BytesList(value=tf.compat.as_bytes(avg_embedding.tostring()))),
-                    'image': tf.train.Feature(bytes_list=tf.train.BytesList(value=tf.compat.as_bytes(img.tostring())))
+        features = {'embedding': tf.train.Feature(bytes_list=tf.train.BytesList(value=[avg_embedding.tostring()])),
+                    'image': tf.train.Feature(bytes_list=tf.train.BytesList(value=[img.tostring()]))
                     }
 
         # Create an example protocol buffer
