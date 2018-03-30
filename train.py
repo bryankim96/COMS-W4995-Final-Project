@@ -7,10 +7,14 @@ import argparse
 
 tfgan = tf.contrib.gan
 
+from conditioning import get_conditioning_vector
 from stage_1 import generator_stage1, discriminator_stage1
 from stage_2 import generator_stage2, discriminator_stage2
 
 BATCH_SIZE = 64
+
+Z_DIM = 100
+EMBEDDING_DIM = 128
 
 # output shape of generator images
 IMAGE_SHAPE = 64
@@ -70,7 +74,15 @@ def train_input_fn():
     # regularization term in the generator loss
     batch_conditioning_vectors, kl_div = get_conditioning_vector(batch_embeddings, conditioning_vector_size=EMBEDDING_DIM)
 
-    return batch_z, batch_images, batch_conditioning_vectors, kl_div 
+    features ={'z': batch_z,
+                'images': batch_images,
+                'c': batch_conditioning_vectors,
+                'kl_div': kl_div
+                }
+
+    labels = {}
+
+    return features
 
 def predict_input_fn():
 
@@ -87,8 +99,15 @@ def predict_input_fn():
     # regularization term in the generator loss
     batch_conditioning_vectors, kl_div = get_conditioning_vector(batch_embeddings, conditioning_vector_size=EMBEDDING_DIM)
 
-    return batch_images, batch_embeddings
-        
+    features ={'z': batch_z,
+                'c': batch_conditioning_vectors,
+                'kl_div': kl_div
+                }
+
+    labels = {}
+
+    return features, labels
+       
 if __name__=="__main__":
 
     parser = argparse.ArgumentParser(description='Train a StackGAN model.')
@@ -108,6 +127,23 @@ if __name__=="__main__":
         raise NotImplementedError('Not yet implemented.')
     else:
         raise ValueError('Invalid model.')
+
+    """
+    model = tfgan.gan_model(
+        generator_fn=generator_function,
+        discriminator_fn=discriminator_function,
+        real_data=real_images,
+        generator_inputs=(tf.random_normal([batch_size, noise_dims]), one_hot_labels))
+
+    loss = tfgan.gan_loss(model,
+            generator_loss_fn=generator_loss_function,
+            discriminator_loss_fn=discriminator_loss_function)
+
+    generator_optimizer = tf.train.AdamOptimizer(0.001, beta1=0.5)
+    discriminator_optimizer = tf.train.AdamOptimizer(0.0001, beta1=0.5)
+
+    gan_train_ops = tfgan.gan_train_ops(model, loss, generator_optimizer, discriminator_optimizer)
+    """
 
     # setup gan Estimator
     gan_estimator = tfgan.estimator.GANEstimator(
