@@ -3,8 +3,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pickle
 
+import argparse
 
 tfgan = tf.contrib.gan
+
+from stage_1 import generator_stage1, discriminator_stage1
+from stage_2 import generator_stage2, discriminator_stage2
 
 BATCH_SIZE = 64
 
@@ -15,7 +19,7 @@ IMAGE_SHAPE = 64
 # in the stage 1 generator loss
 KL_REG_LAMBDA = 0.01
 
-NUM_STEPS = 100
+NUM_STEPS = 600
 
 DATA_DIR = "./Data/birds"
 
@@ -34,17 +38,6 @@ def custom_generator_loss(gan_model, add_summaries=False):
     custom_loss = tf.add(standard_generator_loss, reg_loss) 
 
     return custom_loss
-
-# setup gan Estimator
-gan_estimator = tfgan.estimator.GANEstimator(
-    generator_fn=generator_stage1,
-    discriminator_fn=discriminator_stage1,
-    generator_loss_fn=custom_generator_loss,
-    discriminator_loss_fn=tfgan.losses.modified_discriminator_loss,
-    generator_optimizer=tf.train.AdamOptimizer(0.001, 0.5),
-    discriminator_optimizer=tf.train.AdamOptimizer(0.0001, 0.5),
-    add_summaries=tfgan.estimator.SummaryType.IMAGES)
-
 
 def _parse_function(example_proto):
     features = {"image": tf.FixedLenFeature((), tf.string, default_value=""),
@@ -97,18 +90,51 @@ def predict_input_fn():
     return batch_images, batch_embeddings
         
 if __name__=="__main__":
-    # train
-    gan_estimator.train(train_input_fn, max_steps=NUM_STEPS)
 
-    # predict (generate) and visualize
-    prediction_gen = gan_estimator.predict(predict_input_fn, hooks=[tf.train.StopAtStepHook(last_step=1)])
-    predictions = [prediction_gen.next() for _ in xrange(36)]
+    parser = argparse.ArgumentParser(description='Train a StackGAN model.')
+    parser.add_argument('model', help='Whether to train Stage I or Stage I + II. Choose from stage1 or stage2.')
+    parser.add_argument('logdir', help='Directory for storing/reading checkpoint files.')
+    parser.add_argument('--mode', default='train', help='Whether to train or predict. Defaults to train')
+    parser.add_argument('--num_steps', type=int, help='Number of steps to train for.', default=NUM_STEPS)
 
-    # Visualize 36 images together
-    image_rows = [np.concatenate(predictions[i:i+6], axis=0) for i in range(0, 36, 6)]
-    tiled_images = np.concatenate(image_rows, axis=1)
+    args = parser.parse_args()
 
-    # Visualize.
-    plt.axis('off')
-    plt.imshow(np.squeeze(tiled_images), cmap='gray')
+    if args.model == 'stage1':
+        generator_function = generator_stage1
+        discriminator_function = discriminator_stage1
+        generator_loss_function = custom_generator_loss
+        discriminator_loss_function = tfgan.losses.modified_discriminator_loss
+    elif args.model == 'stage2':
+        raise NotImplementedError('Not yet implemented.')
+    else:
+        raise ValueError('Invalid model.')
+
+    # setup gan Estimator
+    gan_estimator = tfgan.estimator.GANEstimator(
+        generator_fn=generator_function,
+        discriminator_fn=discriminator_function,
+        generator_loss_fn=generator_loss_function,
+        discriminator_loss_fn=discriminator_loss_function,
+        generator_optimizer=tf.train.AdamOptimizer(0.001, 0.5),
+        discriminator_optimizer=tf.train.AdamOptimizer(0.0001, 0.5),
+        add_summaries=tfgan.estimator.SummaryType.IMAGES,
+        model_dir=args.logdir)
+
+    if args.mode == 'train':
+        gan_estimator.train(train_input_fn, max_steps=args.num_steps)
+    elif args.mode == 'predict':
+        # predict (generate) and visualize
+        prediction_gen = gan_estimator.predict(predict_input_fn, hooks=[tf.train.StopAtStepHook(last_step=1)])
+        predictions = [prediction_gen.next() for _ in xrange(36)]
+
+        # Visualize 36 images together
+        image_rows = [np.concatenate(predictions[i:i+6], axis=0) for i in range(0, 36, 6)]
+        tiled_images = np.concatenate(image_rows, axis=1)
+
+        # Visualize.
+        plt.axis('off')
+        plt.imshow(np.squeeze(tiled_images), cmap='gray')
+
+    else:
+        raise ValueError('Invalid mode.')
 
