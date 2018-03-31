@@ -34,8 +34,8 @@ TEST_DIR = DATA_DIR + "/test"
 # the standard minimax GAN loss from https://arxiv.org/abs/1406.2661
 def custom_generator_loss(gan_model, add_summaries=False):
 
-    standard_generator_loss = tfgan.losses.modified_generator_loss(gan_model.discriminator_gen_outputs)
-    
+    standard_generator_loss = tfgan.losses.modified_generator_loss(gan_model) 
+
     # gan_model.generator_inputs[2] is the KL divergence
     reg_loss = KL_REG_LAMBDA * gan_model.generator_inputs[2] 
 
@@ -43,71 +43,38 @@ def custom_generator_loss(gan_model, add_summaries=False):
 
     return custom_loss
 
-def _parse_function(example_proto):
-    features = {"image": tf.FixedLenFeature((), tf.string, default_value=""),
-                "embedding": tf.FixedLenFeature((), tf.string, default_value="")}
+def _parse_function(example_proto, image_type='lr'):
+
+    if image_type=='lr':
+        raw_shape = 76
+        cropped_shape = 64
+    elif image_type=='hr':
+        raw_shape = 304
+        cropped_shape = 256
+
+    features = {"embeddings": tf.FixedLenFeature([], tf.string),
+                "image": tf.FixedLenFeature([], tf.string)}
     parsed_features = tf.parse_single_example(example_proto, features)
 
     image = tf.decode_raw(parsed_features['image'], tf.float32)
-    image = tf.reshape(image, [76,76,3])
+    image = tf.reshape(image, [raw_shape, raw_shape, 3])
 
-    embedding = tf.decode_raw(parsed_features['embedding'], tf.float32)
-    embedding = tf.reshape(embedding, [1024])
+    # randomly crop from (76, 76, 3) to (64, 64, 3)
+    image = tf.random_crop(image, [cropped_shape, cropped_shape, 3])
 
-    return image, embedding
+    # randomly flip left right w/ 50% probability
+    image = tf.image.random_flip_left_right(image)
 
-# train input function
-def train_input_fn():
+    embeddings = tf.decode_raw(parsed_features['embeddings'], tf.float32)
+    embeddings = tf.reshape(embeddings, [-1,1024])
 
-    train_filenames = [TRAIN_DIR + '/data.tfrecord']
-    dataset = tf.data.TFRecordDataset(train_filenames)
-    dataset = dataset.map(_parse_function, num_parallel_calls=4)
-    dataset = dataset.repeat()
-    dataset = dataset.batch(BATCH_SIZE)
-    iterator = dataset.make_initializable_iterator()
+    # randomly sample 4 embeddings and take the average
+    embeddings = tf.random_shuffle(embeddings)
+    embeddings = embeddings[:4,:]
+    avg_embedding = tf.reduce_mean(embeddings, axis=0)
 
-    batch_images, batch_embeddings = iterator.get_next()
-
-    # get randomly sampled noise/latent vector
-    batch_z = tf.random_normal([BATCH_SIZE, Z_DIM])
-    # get conditioning vector (from embedding) and KL divergence for use as a
-    # regularization term in the generator loss
-    batch_conditioning_vectors, kl_div = get_conditioning_vector(batch_embeddings, conditioning_vector_size=EMBEDDING_DIM)
-
-    features ={'z': batch_z,
-                'images': batch_images,
-                'c': batch_conditioning_vectors,
-                'kl_div': kl_div
-                }
-
-    labels = {}
-
-    return features
-
-def predict_input_fn():
-
-    test_filenames = [TEST_DIR + '/data.tfrecord']
-    dataset = tf.data.TFRecordDataset(test_filenames)
-    dataset = dataset.map(_parse_function, num_parallel_calls=4)
-    dataset = dataset.repeat()
-    dataset = dataset.batch(BATCH_SIZE)
-    iterator = dataset.make_initializable_iterator()
-
-    batch_images, batch_embeddings = iterator.get_next()
-
-    # get conditioning vector (from embedding) and KL divergence for use as a
-    # regularization term in the generator loss
-    batch_conditioning_vectors, kl_div = get_conditioning_vector(batch_embeddings, conditioning_vector_size=EMBEDDING_DIM)
-
-    features ={'z': batch_z,
-                'c': batch_conditioning_vectors,
-                'kl_div': kl_div
-                }
-
-    labels = {}
-
-    return features, labels
-       
+    return image, avg_embedding
+      
 if __name__=="__main__":
 
     parser = argparse.ArgumentParser(description='Train a StackGAN model.')
@@ -123,54 +90,75 @@ if __name__=="__main__":
         discriminator_function = discriminator_stage1
         generator_loss_function = custom_generator_loss
         discriminator_loss_function = tfgan.losses.modified_discriminator_loss
+        
+        def parse_fn(example_proto):
+            return _parse_function(example_proto, image_type='lr')
+
+        data_filename = '/data_76.tfrecord'
+
     elif args.model == 'stage2':
         raise NotImplementedError('Not yet implemented.')
     else:
         raise ValueError('Invalid model.')
 
-    """
-    model = tfgan.gan_model(
-        generator_fn=generator_function,
-        discriminator_fn=discriminator_function,
-        real_data=real_images,
-        generator_inputs=(tf.random_normal([batch_size, noise_dims]), one_hot_labels))
-
-    loss = tfgan.gan_loss(model,
-            generator_loss_fn=generator_loss_function,
-            discriminator_loss_fn=discriminator_loss_function)
-
-    generator_optimizer = tf.train.AdamOptimizer(0.001, beta1=0.5)
-    discriminator_optimizer = tf.train.AdamOptimizer(0.0001, beta1=0.5)
-
-    gan_train_ops = tfgan.gan_train_ops(model, loss, generator_optimizer, discriminator_optimizer)
-    """
-
-    # setup gan Estimator
-    gan_estimator = tfgan.estimator.GANEstimator(
-        generator_fn=generator_function,
-        discriminator_fn=discriminator_function,
-        generator_loss_fn=generator_loss_function,
-        discriminator_loss_fn=discriminator_loss_function,
-        generator_optimizer=tf.train.AdamOptimizer(0.001, 0.5),
-        discriminator_optimizer=tf.train.AdamOptimizer(0.0001, 0.5),
-        add_summaries=tfgan.estimator.SummaryType.IMAGES,
-        model_dir=args.logdir)
-
     if args.mode == 'train':
-        gan_estimator.train(train_input_fn, max_steps=args.num_steps)
+
+        train_filenames = [TRAIN_DIR + data_filename]
+        dataset = tf.data.TFRecordDataset(train_filenames)
+        dataset = dataset.map(parse_fn, num_parallel_calls=4)
+        dataset = dataset.repeat()
+        dataset = dataset.batch(BATCH_SIZE)
+        iterator = dataset.make_initializable_iterator()
+
+        batch_images, batch_embeddings = iterator.get_next()
+
+        # get randomly sampled noise/latent vector
+        batch_z = tf.random_normal([BATCH_SIZE, Z_DIM])
+        # get conditioning vector (from embedding) and KL divergence for use as a
+        # regularization term in the generator loss
+        batch_conditioning_vectors, kl_div = get_conditioning_vector(batch_embeddings, conditioning_vector_size=EMBEDDING_DIM)
+
+        model = tfgan.gan_model(
+            generator_fn=generator_function,
+            discriminator_fn=discriminator_function,
+            real_data=batch_images,
+            generator_inputs=(batch_z, batch_conditioning_vectors, kl_div))
+
+        loss = tfgan.gan_loss(model,
+                generator_loss_fn=generator_loss_function,
+                discriminator_loss_fn=discriminator_loss_function)
+
+        generator_optimizer = tf.train.AdamOptimizer(0.002, beta1=0.5)
+        discriminator_optimizer = tf.train.AdamOptimizer(0.0002, beta1=0.5)
+
+        update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+        with tf.control_dependencies(update_ops):
+
+            gan_train_ops = tfgan.gan_train_ops(model, loss, generator_optimizer, discriminator_optimizer)
+
+            global_step = tf.train.get_or_create_global_step()
+            train_step_fn = tfgan.get_sequential_train_steps()
+
+        with tf.train.MonitoredTrainingSession(checkpoint_dir=args.logdir) as sess:
+            sess.run(iterator.initializer)
+            for i in range(NUM_STEPS):
+                cur_loss, _ = train_step_fn(sess, gan_train_ops, global_step, train_step_kwargs={})
+
     elif args.mode == 'predict':
-        # predict (generate) and visualize
-        prediction_gen = gan_estimator.predict(predict_input_fn, hooks=[tf.train.StopAtStepHook(last_step=1)])
-        predictions = [prediction_gen.next() for _ in xrange(36)]
 
-        # Visualize 36 images together
-        image_rows = [np.concatenate(predictions[i:i+6], axis=0) for i in range(0, 36, 6)]
-        tiled_images = np.concatenate(image_rows, axis=1)
+        test_filenames = [TEST_DIR + '/data.tfrecord']
+        dataset = tf.data.TFRecordDataset(test_filenames)
+        dataset = dataset.map(_parse_function, num_parallel_calls=4)
+        dataset = dataset.repeat()
+        dataset = dataset.batch(BATCH_SIZE)
+        iterator = dataset.make_initializable_iterator()
 
-        # Visualize.
-        plt.axis('off')
-        plt.imshow(np.squeeze(tiled_images), cmap='gray')
+        batch_images, batch_embeddings = iterator.get_next()
 
+        # get conditioning vector (from embedding) and KL divergence for use as a
+        # regularization term in the generator loss
+        batch_conditioning_vectors, kl_div = get_conditioning_vector(batch_embeddings, conditioning_vector_size=EMBEDDING_DIM)
+        
     else:
         raise ValueError('Invalid mode.')
 
