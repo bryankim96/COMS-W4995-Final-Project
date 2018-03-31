@@ -30,13 +30,9 @@ DISCRIMINATOR_DIM = 64
 # NOTE: Our usage of conv2d layers omits the use of a bias term because in
 # the authors' github repo their custom conv2d layer does not use one.
 # The motivation behind this is unclear
-def generator_stage1(features, mode):
+def generator_stage1(inputs, is_training=True):
 
-    z = features['z']
-    conditioning_vector = features['c']
-    kl_div = features['kl_div']
-
-    is_training = True if mode == 'train' else False
+    z, conditioning_vector, kl_div = inputs
 
     # concatenate noise/latent vector and conditioning vector
     z_var = tf.concat([z, conditioning_vector], axis=1)
@@ -169,11 +165,11 @@ def generator_stage1(features, mode):
 
     return x_5
 
-def discriminator_stage1(image, features, mode):
+def discriminator_stage1(image, conditioning, is_training=True):
 
-    embedding_vector = features['c']
+    print(image.get_shape())
 
-    is_training = True if mode == 'train' else False
+    z, embedding_vector, kl_div = conditioning
 
     # process embedding vector by passing it through a fully-connected layer
     compressed_embedding = tf.layers.dense(embedding_vector, units=EMBEDDING_DIM, activation=tf.nn.leaky_relu)
