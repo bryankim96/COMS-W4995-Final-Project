@@ -7,6 +7,7 @@ import numpy as np
 import tensorflow as tf
 import os
 import pickle
+import scipy
 
 from utils import get_image
 
@@ -57,37 +58,41 @@ def load_bbox(data_dir):
 
 
 def save_data_tfrecords(inpath, outpath, filenames, filename_bbox):
-    
-    # open the TFRecords file
-    writer = tf.python_io.TFRecordWriter(outpath + 'data.tfrecord')
-    
+     
     # get list of embeddings
     # list of len NUM_IMAGES of numpy arrays of shape [NUM_CAPTIONS, 1024]
     embeddings = load_embeddings(outpath)
 
+    lr_size = int(LOAD_SIZE / LR_HR_RATIO)
+
+    # open the TFRecords files
+    writer_lr = tf.python_io.TFRecordWriter(outpath + 'data_' + str(lr_size) + '.tfrecord')
+    writer_hr = tf.python_io.TFRecordWriter(outpath + 'data_' + str(LOAD_SIZE) + '.tfrecord')
+ 
     cnt = 0
     for i, key in enumerate(filenames):
         bbox = filename_bbox[key]
         f_name = '%s/CUB_200_2011/images/%s.jpg' % (inpath, key)
-        img = get_image(f_name, LOAD_SIZE, is_crop=True, bbox=bbox)
+        img = get_image(f_name, LOAD_SIZE, is_crop=True, bbox=bbox) 
         img = img.astype(np.float32)
-        
-        # randomly sample 4 captions and average to get a representative embedding
-        np.random.shuffle(embeddings[i])
-        selected_embeddings = embeddings[i][:4]
-        avg_embedding = np.mean(selected_embeddings, axis=0)
-        avg_embedding = avg_embedding.astype(np.float32)
+        lr_img = scipy.misc.imresize(img, [lr_size, lr_size], 'bicubic').astype(np.float32)
 
         # Create features
-        features = {'embedding': tf.train.Feature(bytes_list=tf.train.BytesList(value=[avg_embedding.tostring()])),
+        features_lr = {'embeddings': tf.train.Feature(bytes_list=tf.train.BytesList(value=[embeddings[i].tostring()])),
+                    'image': tf.train.Feature(bytes_list=tf.train.BytesList(value=[lr_img.tostring()]))
+                    }
+
+        features_hr = {'embeddings': tf.train.Feature(bytes_list=tf.train.BytesList(value=[embeddings[i].tostring()])),
                     'image': tf.train.Feature(bytes_list=tf.train.BytesList(value=[img.tostring()]))
                     }
 
         # Create an example protocol buffer
-        example = tf.train.Example(features=tf.train.Features(feature=features))
-                
+        example_lr = tf.train.Example(features=tf.train.Features(feature=features_lr))
+        example_hr = tf.train.Example(features=tf.train.Features(feature=features_hr))
+ 
         # Serialize to string and write on the file
-        writer.write(example.SerializeToString())
+        writer_lr.write(example_lr.SerializeToString())
+        writer_hr.write(example_hr.SerializeToString())
 
         cnt += 1
         if cnt % 100 == 0:
