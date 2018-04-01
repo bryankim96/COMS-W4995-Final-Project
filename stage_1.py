@@ -167,8 +167,6 @@ def generator_stage1(inputs, is_training=True):
 
 def discriminator_stage1(image, conditioning, is_training=True):
 
-    print(image.get_shape())
-
     z, embedding_vector, kl_div = conditioning
 
     # process embedding vector by passing it through a fully-connected layer
