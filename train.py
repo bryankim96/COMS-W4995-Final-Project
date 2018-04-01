@@ -21,9 +21,10 @@ IMAGE_SHAPE = 64
 
 # size factor for the KL-divergence regularization term
 # in the stage 1 generator loss
-KL_REG_LAMBDA = 0.01
+KL_REG_LAMBDA = 2.0
 
-NUM_STEPS = 600
+#NUM_STEPS = 600
+NUM_STEPS = -1
 
 DATA_DIR = "./Data/birds"
 
@@ -58,6 +59,9 @@ def _parse_function(example_proto, image_type='lr'):
 
     image = tf.decode_raw(parsed_features['image'], tf.float32)
     image = tf.reshape(image, [raw_shape, raw_shape, 3])
+
+    # normalize to (-1,1)
+    image = (image * (2.0/255.0)) - 1.0
 
     # randomly crop from (76, 76, 3) to (64, 64, 3)
     image = tf.random_crop(image, [cropped_shape, cropped_shape, 3])
@@ -139,10 +143,20 @@ if __name__=="__main__":
             global_step = tf.train.get_or_create_global_step()
             train_step_fn = tfgan.get_sequential_train_steps()
 
-        with tf.train.MonitoredTrainingSession(checkpoint_dir=args.logdir) as sess:
+	# set up image summaries
+        tf.summary.image('real_images', batch_images)
+        tf.summary.image('generated_images', model.generated_data)
+        summary_op = tf.summary.merge_all()
+        summary_hook = tf.train.SummarySaverHook(save_secs=300,output_dir=args.logdir,summary_op=summary_op)
+
+        with tf.train.MonitoredTrainingSession(hooks=[summary_hook], checkpoint_dir=args.logdir) as sess:
             sess.run(iterator.initializer)
-            for i in range(NUM_STEPS):
-                cur_loss, _ = train_step_fn(sess, gan_train_ops, global_step, train_step_kwargs={})
+            if NUM_STEPS < 0:
+                while True:
+                    cur_loss, _ = train_step_fn(sess, gan_train_ops, global_step, train_step_kwargs={})
+            else:
+                for i in range(NUM_STEPS):
+                    cur_loss, _ = train_step_fn(sess, gan_train_ops, global_step, train_step_kwargs={})
 
     elif args.mode == 'predict':
 
