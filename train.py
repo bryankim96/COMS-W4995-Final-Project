@@ -122,32 +122,33 @@ if __name__=="__main__":
         # regularization term in the generator loss
         batch_conditioning_vectors, kl_div = get_conditioning_vector(batch_embeddings, conditioning_vector_size=EMBEDDING_DIM)
 
-        model = tfgan.gan_model(
-            generator_fn=generator_function,
-            discriminator_fn=discriminator_function,
-            real_data=batch_images,
-            generator_inputs=(batch_z, batch_conditioning_vectors, kl_div))
+        with tf.variable_scope('model'):
+            model = tfgan.gan_model(
+                generator_fn=generator_function,
+                discriminator_fn=discriminator_function,
+                real_data=batch_images,
+                generator_inputs=(batch_z, batch_conditioning_vectors, kl_div))
 
-        loss = tfgan.gan_loss(model,
-                generator_loss_fn=generator_loss_function,
-                discriminator_loss_fn=discriminator_loss_function)
+            loss = tfgan.gan_loss(model,
+                    generator_loss_fn=generator_loss_function,
+                    discriminator_loss_fn=discriminator_loss_function)
 
-        generator_optimizer = tf.train.AdamOptimizer(0.002, beta1=0.5)
-        discriminator_optimizer = tf.train.AdamOptimizer(0.0002, beta1=0.5)
+            generator_optimizer = tf.train.AdamOptimizer(0.002, beta1=0.5)
+            discriminator_optimizer = tf.train.AdamOptimizer(0.0002, beta1=0.5)
 
-        update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-        with tf.control_dependencies(update_ops):
+            update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+            with tf.control_dependencies(update_ops):
 
-            gan_train_ops = tfgan.gan_train_ops(model, loss, generator_optimizer, discriminator_optimizer)
+                gan_train_ops = tfgan.gan_train_ops(model, loss, generator_optimizer, discriminator_optimizer)
 
-            global_step = tf.train.get_or_create_global_step()
-            train_step_fn = tfgan.get_sequential_train_steps()
+                global_step = tf.train.get_or_create_global_step()
+                train_step_fn = tfgan.get_sequential_train_steps()
 
-	# set up image summaries
-        tf.summary.image('real_images', batch_images)
-        tf.summary.image('generated_images', model.generated_data)
-        summary_op = tf.summary.merge_all()
-        summary_hook = tf.train.SummarySaverHook(save_secs=300,output_dir=args.logdir,summary_op=summary_op)
+            # set up image summaries
+            tf.summary.image('real_images', batch_images)
+            tf.summary.image('generated_images', model.generated_data)
+            summary_op = tf.summary.merge_all()
+            summary_hook = tf.train.SummarySaverHook(save_secs=300,output_dir=args.logdir,summary_op=summary_op)
 
         with tf.train.MonitoredTrainingSession(hooks=[summary_hook], checkpoint_dir=args.logdir) as sess:
             sess.run(iterator.initializer)
@@ -172,7 +173,27 @@ if __name__=="__main__":
         # get conditioning vector (from embedding) and KL divergence for use as a
         # regularization term in the generator loss
         batch_conditioning_vectors, kl_div = get_conditioning_vector(batch_embeddings, conditioning_vector_size=EMBEDDING_DIM)
-        
+
+        model = tfgan.gan_model(
+            generator_fn=generator_function,
+            discriminator_fn=discriminator_function,
+            real_data=batch_images,
+            generator_inputs=(batch_z, batch_conditioning_vectors, kl_div))
+
+        saver = tf.train.Saver()
+
+        eval_images = gan_model.generator_fn((batch_z, batch_conditioning_vectors, kl_div), is_training=False)
+        reshaped_eval_imgs = tfgan.eval.image_reshaper(eval_images[:20, ...], num_cols=10)
+
+        with tf.Session() as sess:
+            # Restore variables from disk.
+            saver.restore(sess, os.path.join(args.logdir, "model.ckpt")
+
+            eval_images = sess.run([reshaped_eval_imgs])
+
+            plt.axis('off')
+            plt.imsave('test_images.png', eval_images)
+
     else:
         raise ValueError('Invalid mode.')
 
