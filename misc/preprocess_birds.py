@@ -9,7 +9,7 @@ import os
 import pickle
 import scipy
 
-from utils import get_image
+from .utils import get_image
 
 import pandas as pd
 
