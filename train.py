@@ -4,6 +4,9 @@ import numpy as np
 import pickle
 from PIL import Image, ImageDraw
 import scipy
+import torch
+
+from torch.utils.serialization import load_lua
  
 import argparse
 import random
@@ -94,6 +97,8 @@ if __name__=="__main__":
     parser.add_argument('logdir', help='Directory for storing/reading checkpoint files.')
     parser.add_argument('--mode', default='train', help='Whether to train or predict. Defaults to train')
     parser.add_argument('--num_steps', type=int, help='Number of steps to train for.', default=NUM_STEPS)
+    parser.add_argument('--test_description', help='text description sentence to predict for in eval mode', default=None)
+    parser.add_argument('--test_embedding', help='path to a test embedding to predict on when in eval mode', default=None)
 
     args = parser.parse_args()
 
@@ -168,40 +173,52 @@ if __name__=="__main__":
 
     elif args.mode == 'eval':
 
-        # get class ids as list of len (2933)
-        with open(TEST_DIR + '/class_info.pickle', 'rb') as f:
-            class_ids = pickle.load(f)
+        if args.test_description and args.test_embedding:
+            caption = args.test_description
+            embedding = load_lua('test_embedding.t7').numpy()[0]
 
-        # load embeddings as numpy array of shape (2933, 10, 1024)
-        with open(TEST_DIR + '/char-CNN-RNN-embeddings.pickle', 'rb') as f:
-            embeddings = pickle.load(f,encoding='latin1')
-            embeddings = np.array(embeddings)
+        elif args.test_description and (not args.test_embedding):
+            raise ValueError("Both a description and embedding need to be provided.")
+        elif (not args.test_description) and args.test_embedding:
+            raise ValueError("Both a description and embedding need to be provided.")
+        else:
 
-        # get list of filenames of len (2933)
-        with open(TEST_DIR + '/filenames.pickle', 'rb') as f:
-            list_filenames = pickle.load(f)
-            
-        # choose a random test image filename
-        index, filename = random.choice(list(enumerate(list_filenames)))	
+            # get class ids as list of len (2933)
+            with open(TEST_DIR + '/class_info.pickle', 'rb') as f:
+                class_ids = pickle.load(f)
 
-        # get the corresponding captions
-        with open(DATA_DIR + '/text_c10/' + filename + '.txt', "r") as f:
-            captions = f.read().split('\n')
-        captions = [cap for cap in captions if len(cap) > 0]
-	
-        # randomly select 1 caption and the corresponding embedding
-        j, caption = random.choice(list(enumerate(captions)))
-        embedding = embeddings[index][j]
+            # load embeddings as numpy array of shape (2933, 10, 1024)
+            with open(TEST_DIR + '/char-CNN-RNN-embeddings.pickle', 'rb') as f:
+                embeddings = pickle.load(f,encoding='latin1')
+                embeddings = np.array(embeddings)
 
-        # load the example true image (process as usual down to 76 x 76
-        lr_size = int(LOAD_SIZE / LR_HR_RATIO)
-        filename_bbox = load_bbox('Data/birds/')
-        bbox = filename_bbox[filename]
-        f_name = 'Data/birds/CUB_200_2011/images/%s.jpg' % filename
-        img = get_image(f_name, LOAD_SIZE, is_crop=True, bbox=bbox) 
-        img = img.astype(np.float32)
-        true_img = scipy.misc.imresize(img, [lr_size, lr_size], 'bicubic').astype(np.float32)
+            # get list of filenames of len (2933)
+            with open(TEST_DIR + '/filenames.pickle', 'rb') as f:
+                list_filenames = pickle.load(f)
+                
+            # choose a random test image filename
+            index, filename = random.choice(list(enumerate(list_filenames)))	
+
+            # get the corresponding captions
+            with open(DATA_DIR + '/text_c10/' + filename + '.txt', "r") as f:
+                captions = f.read().split('\n')
+            captions = [cap for cap in captions if len(cap) > 0]
         
+            # randomly select 1 caption and the corresponding embedding
+            j, caption = random.choice(list(enumerate(captions)))
+            embedding = embeddings[index][j]
+
+            # load the example true image (process as usual down to 76 x 76
+            lr_size = int(LOAD_SIZE / LR_HR_RATIO)
+            filename_bbox = load_bbox('Data/birds/')
+            bbox = filename_bbox[filename]
+            f_name = 'Data/birds/CUB_200_2011/images/%s.jpg' % filename
+            img = get_image(f_name, LOAD_SIZE, is_crop=True, bbox=bbox) 
+            img = img.astype(np.float32)
+            true_img = scipy.misc.imresize(img, [lr_size, lr_size], 'bicubic').astype(np.float32)
+            
+        print("Caption: ", caption)
+
         # convert the embedding to a tensor and repeat BATCH_SIZE times to shape (BATCH_SIZE, 1024)
         embedding = tf.constant(embedding)
         batch_embeddings =  tf.tile(tf.expand_dims(embedding, axis=0),[BATCH_SIZE,1])
@@ -233,9 +250,11 @@ if __name__=="__main__":
 
         d = ImageDraw.Draw(composite_img)
         d.text((20,30), caption, fill=(255,255,0))
- 
-        true_img = Image.fromarray(true_img.astype(np.uint8))    
-        composite_img.paste(true_img,(50,112))
+
+        if not args.test_description and not args.test_embedding:
+            true_img = Image.fromarray(true_img.astype(np.uint8))    
+            composite_img.paste(true_img,(50,112))
+
         eval_images_array = Image.fromarray(((eval_images_array[0] + 1.0) * (255.0 / 2.0)).astype(np.uint8))
         composite_img.paste(eval_images_array,(176,118))
 
