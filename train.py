@@ -41,6 +41,21 @@ DATA_DIR = "./Data/birds"
 TRAIN_DIR = DATA_DIR + "/train"
 TEST_DIR = DATA_DIR + "/test"
 
+with open(pickle_path + self.image_filename, 'rb') as f:
+    IMAGES = pickle.load(f)
+    IMAGES = np.array(IMAGES)
+    print('images: ', IMAGES.shape)
+
+with open(pickle_path + self.embedding_filename, 'rb') as f:
+    EMBEDDINGS = pickle.load(f)
+    EMBEDDINGS = np.array(EMBEDDINGS)
+    print('embeddings: ', EMBEDDINGS.shape)
+
+with open(pickle_path + '/class_info.pickle', 'rb') as f:
+    CLASSES = pickle.load(f)
+
+NUM_TRAINING_EXAMPLES = IMAGES.shape[0]
+
 # We define the generator loss used in the paper by adding the KL regularization term to
 # the standard minimax GAN loss from https://arxiv.org/abs/1406.2661
 def custom_generator_loss(gan_model, add_summaries=False):
@@ -134,7 +149,54 @@ def _parse_function(example_proto, image_type='lr'):
     avg_embedding = tf.reduce_mean(embeddings, axis=0)
 
     return image, avg_embedding
-      
+
+def map_fn(index):
+    return tuple(tf.py_func(load_data, [index], [tf.float32, tf.float32, tf.float32]))
+
+def load_data(index, image_type='lr'):
+
+    if image_type=='lr':
+        raw_shape = 76
+        cropped_shape = 64
+    elif image_type=='hr':
+        raw_shape = 304
+        cropped_shape = 256
+
+    image = IMAGES[index]
+    image = np.reshape(image, [raw_shape, raw_shape, 3])
+
+    # normalize to (-1,1)
+    image = (image * (2.0/255.0)) - 1.0
+
+    # randomly crop from (76, 76, 3) to (64, 64, 3)
+    x = np.random.randint(12)
+    y = np.random.randint(12)
+    image = image[x:x+64,y:y+64,:]
+
+    # randomly flip left right w/ 50% probability
+    flip = np.random.randint(2)
+    if flip == 1:
+        image = np.fliplr(image)
+
+    embeddings = EMBEDDINGS[index]
+
+    # randomly sample 4 embeddings and take the average
+    np.random.shuffle(embeddings)
+    embeddings = embeddings[:4,:]
+    embedding = np.mean(embeddings, axis=0)
+
+    # get class of selected image
+    img_class = CLASSES[index]
+
+    # get wrong embeddings (of different class)
+    wrong_index = np.random.randint(NUM_TRAINING_EXAMPLES)
+    if img_class == CLASSES[wrong_index]:
+        wrong_index = (wrong_index + np.random.randint(100, 200))) % NUM_TRAINING_EXAMPLES
+    j = np.random.randint(10)
+    mismatched_embedding = EMBEDDINGS[wrong_index][j,:]
+
+    return image, embedding, mismatched_embedding
+  
 if __name__=="__main__":
 
     parser = argparse.ArgumentParser(description='Train a StackGAN model.')
@@ -166,12 +228,24 @@ if __name__=="__main__":
 
     if args.mode == 'train':
 
+        """
         train_filenames = [TRAIN_DIR + data_filename]
         dataset = tf.data.TFRecordDataset(train_filenames)
         dataset = dataset.map(parse_fn, num_parallel_calls=4)
         dataset = dataset.repeat()
         dataset = dataset.batch(BATCH_SIZE)
         iterator = dataset.make_initializable_iterator()
+        """
+
+        def gen():
+            for i in range(NUM_TRAINING_EXAMPLES):
+                yield i
+
+        dataset = Dataset.from_generator(gen, (tf.int32), (tf.TensorShape([]), tf.TensorShape([None])))
+        dataset = dataset.map(map_fn, num_parallel_calls=4)
+        dataset = dataset.repeat()
+        dataset = dataset.batch(BATCH_SIZE)
+        iterator = dataset.make_initializable_iterator()    
 
         batch_images, batch_embeddings, batch_mismatched_embeddings = iterator.get_next()
 
