@@ -54,6 +54,52 @@ def custom_generator_loss(gan_model, add_summaries=False):
 
     return custom_loss
 
+# custom discriminator loss to include mismatched pairs
+def custom_discriminator_loss(gan_model, batch_mismatched_conditioning_vectors, add_summaries=False):
+
+    mismatched_inputs = (gan_model.generator_inputs[0], batch_mismatched_conditioning_vectors, gan_model.generator_inputs[2])
+
+    discriminator_real_outputs = gan_model.discriminator_real_outputs,
+    discriminator_gen_outputs = gan_model.disciminator_gen_outputs,  
+    with tf.variable_scope('Discriminator', reuse=True):    
+        discriminator_mismatched_outputs = gan_model.discriminator_fn(real_data, mismatched_inputs) 
+
+    label_smoothing=0.25
+    real_weights=1.0
+    generated_weights=1.0
+    reduction=losses.Reduction.SUM_BY_NONZERO_WEIGHTS
+  
+    with ops.name_scope(scope, 'discriminator_minimax_loss', (
+      discriminator_real_outputs, discriminator_gen_outputs, real_weights,
+      generated_weights, label_smoothing)) as scope:
+
+    # -log((1 - label_smoothing) - sigmoid(D(x)))
+    loss_on_real = losses.sigmoid_cross_entropy(
+        array_ops.ones_like(discriminator_real_outputs),
+        discriminator_real_outputs, real_weights, label_smoothing, scope,
+        loss_collection=None, reduction=reduction)
+    # -log(- sigmoid(D(G(z,h))))
+    loss_on_generated = losses.sigmoid_cross_entropy(
+        array_ops.zeros_like(discriminator_gen_outputs),
+        discriminator_gen_outputs, generated_weights, scope=scope,
+        loss_collection=None, reduction=reduction)    
+    # -log(- sigmoid(D(G(z,h_hat))))
+    loss_mismatched = losses.sigmoid_cross_entropy(array_ops.zeros_like(discriminator_mismatched_outputs),
+        discriminator_mismatched_outputs, generated_weights, scope=scope,
+        loss_collection=None, reduction=reduction) 
+ 
+    loss = loss_on_real + (loss_on_generated + loss_mismatched)/2
+    util.add_loss(loss, ops.GraphKeys.LOSSES)
+
+    if add_summaries:
+        summary.scalar('discriminator_gen_minimax_loss', loss_on_generated)
+        summary.scalar('discriminator_real_minimax_loss', loss_on_real)
+        summary.scalar('discriminator_mismatched_minimax_loss', loss_mismatched)
+        summary.scalar('discriminator_minimax_loss', loss)
+
+    return loss
+
+
 def _parse_function(example_proto, image_type='lr'):
 
     if image_type=='lr':
@@ -102,10 +148,11 @@ if __name__=="__main__":
     args = parser.parse_args()
 
     if args.model == 'stage1':
+        
         generator_function = generator_stage1
         discriminator_function = discriminator_stage1
         generator_loss_function = custom_generator_loss
-        discriminator_loss_function = tfgan.losses.modified_discriminator_loss
+        #discriminator_loss_function = custom_discriminator_loss_fn
         
         def parse_fn(example_proto):
             return _parse_function(example_proto, image_type='lr')
@@ -126,13 +173,18 @@ if __name__=="__main__":
         dataset = dataset.batch(BATCH_SIZE)
         iterator = dataset.make_initializable_iterator()
 
-        batch_images, batch_embeddings = iterator.get_next()
+        batch_images, batch_embeddings, batch_mismatched_embeddings = iterator.get_next()
 
         # get randomly sampled noise/latent vector
         batch_z = tf.random_normal([BATCH_SIZE, Z_DIM])
         # get conditioning vector (from embedding) and KL divergence for use as a
         # regularization term in the generator loss
-        batch_conditioning_vectors, kl_div = get_conditioning_vector(batch_embeddings, conditioning_vector_size=EMBEDDING_DIM)
+        with tf.variable_scope("conditioning_augmentation", reuse=tf.AUTO_REUSE):
+            batch_conditioning_vectors, kl_div = get_conditioning_vector(batch_embeddings, conditioning_vector_size=EMBEDDING_DIM)
+            batch_mismatched_conditioning_vectors, _ = get_conditioning_vector(batch_mismatched_embeddings, conditioning_vector_size=EMBEDDING_DIM)
+
+        def custom_discriminator_loss_fn(gan_model, add_summaries=False):
+            return custom_discriminator_loss(gan_model, batch_mismatched_conditioning_vectors, add_summaries)
 
         model = tfgan.gan_model(
             generator_fn=generator_function,
@@ -142,7 +194,7 @@ if __name__=="__main__":
 
         loss = tfgan.gan_loss(model,
                 generator_loss_fn=generator_loss_function,
-                discriminator_loss_fn=discriminator_loss_function)
+                discriminator_loss_fn=custom_discriminator_loss_function)
 
         generator_optimizer = tf.train.AdamOptimizer(0.002, beta1=0.5)
         discriminator_optimizer = tf.train.AdamOptimizer(0.0002, beta1=0.5)
