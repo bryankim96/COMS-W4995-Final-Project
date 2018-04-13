@@ -63,6 +63,8 @@ def save_data_tfrecords(inpath, outpath, filenames, filename_bbox):
     # list of len NUM_IMAGES of numpy arrays of shape [NUM_CAPTIONS, 1024]
     embeddings = load_embeddings(outpath)
 
+    print(len(embeddings))
+
     lr_size = int(LOAD_SIZE / LR_HR_RATIO)
 
     # open the TFRecords files
@@ -114,5 +116,48 @@ def convert_birds_dataset_tfrecords(inpath):
     save_data_tfrecords(inpath, test_dir, test_filenames, filename_bbox)
 
 
+def save_data_list(inpath, outpath, filenames, filename_bbox):
+    hr_images = []
+    lr_images = []
+    lr_size = int(LOAD_SIZE / LR_HR_RATIO)
+    cnt = 0
+    for key in filenames:
+        bbox = filename_bbox[key]
+        f_name = '%s/CUB_200_2011/images/%s.jpg' % (inpath, key)
+        img = get_image(f_name, LOAD_SIZE, is_crop=True, bbox=bbox)
+        img = img.astype('uint8')
+        hr_images.append(img)
+        lr_img = scipy.misc.imresize(img, [lr_size, lr_size], 'bicubic')
+        lr_images.append(lr_img)
+        cnt += 1
+        if cnt % 100 == 0:
+            print('Load %d......' % cnt)
+    #
+    print('images', len(hr_images), hr_images[0].shape, lr_images[0].shape)
+    #
+    outfile = outpath + str(LOAD_SIZE) + 'images.pickle'
+    with open(outfile, 'wb') as f_out:
+        pickle.dump(hr_images, f_out)
+        print('save to: ', outfile)
+    #
+    outfile = outpath + str(lr_size) + 'images.pickle'
+    with open(outfile, 'wb') as f_out:
+        pickle.dump(lr_images, f_out)
+        print('save to: ', outfile)
+
+def convert_birds_dataset_pickle(inpath):
+    # Load dictionary between image filename to its bbox
+    filename_bbox = load_bbox(inpath)
+    # ## For Train data
+    train_dir = os.path.join(inpath, 'train/')
+    train_filenames = load_filenames(train_dir)
+    save_data_list(inpath, train_dir, train_filenames, filename_bbox)
+
+    # ## For Test data
+    test_dir = os.path.join(inpath, 'test/')
+    test_filenames = load_filenames(test_dir)
+    save_data_list(inpath, test_dir, test_filenames, filename_bbox)
+
 if __name__ == '__main__':
-    convert_birds_dataset_tfrecords(BIRD_DIR)
+    #convert_birds_dataset_tfrecords(BIRD_DIR)
+    convert_birds_dataset_pickle(BIRD_DIR)
