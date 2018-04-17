@@ -41,23 +41,24 @@ DATA_DIR = "./Data/birds"
 TRAIN_DIR = DATA_DIR + "/train"
 TEST_DIR = DATA_DIR + "/test"
 
-with open(pickle_path + self.image_filename, 'rb') as f:
-    IMAGES = pickle.load(f)
+with open(TRAIN_DIR + '/76images.pickle', 'rb') as f:
+    IMAGES = pickle.load(f, encoding='latin1')
     IMAGES = np.array(IMAGES)
     print('images: ', IMAGES.shape)
 
-with open(pickle_path + self.embedding_filename, 'rb') as f:
-    EMBEDDINGS = pickle.load(f)
+with open(TRAIN_DIR + '/char-CNN-RNN-embeddings.pickle', 'rb') as f:
+    EMBEDDINGS = pickle.load(f, encoding='latin1')
     EMBEDDINGS = np.array(EMBEDDINGS)
     print('embeddings: ', EMBEDDINGS.shape)
 
-with open(pickle_path + '/class_info.pickle', 'rb') as f:
-    CLASSES = pickle.load(f)
+with open(TRAIN_DIR + '/class_info.pickle', 'rb') as f:
+    CLASSES = pickle.load(f, encoding='latin1')
 
 NUM_TRAINING_EXAMPLES = IMAGES.shape[0]
 
 # We define the generator loss used in the paper by adding the KL regularization term to
 # the standard minimax GAN loss from https://arxiv.org/abs/1406.2661
+
 def custom_generator_loss(gan_model, add_summaries=False):
 
     standard_generator_loss = tfgan.losses.modified_generator_loss(gan_model) 
@@ -69,48 +70,48 @@ def custom_generator_loss(gan_model, add_summaries=False):
 
     return custom_loss
 
-# custom discriminator loss to include mismatched pairs
-def custom_discriminator_loss(gan_model, batch_mismatched_conditioning_vectors, add_summaries=False):
+# discriminator loss with mismatched pairs
+def custom_discriminator_loss(gan_model, real_data, batch_mismatched_conditioning_vectors, add_summaries=False):
 
     mismatched_inputs = (gan_model.generator_inputs[0], batch_mismatched_conditioning_vectors, gan_model.generator_inputs[2])
 
     discriminator_real_outputs = gan_model.discriminator_real_outputs,
-    discriminator_gen_outputs = gan_model.disciminator_gen_outputs,  
+    discriminator_gen_outputs = gan_model.discriminator_gen_outputs,  
     with tf.variable_scope('Discriminator', reuse=True):    
         discriminator_mismatched_outputs = gan_model.discriminator_fn(real_data, mismatched_inputs) 
 
     label_smoothing=0.25
     real_weights=1.0
     generated_weights=1.0
-    reduction=losses.Reduction.SUM_BY_NONZERO_WEIGHTS
+    reduction=tf.losses.Reduction.SUM_BY_NONZERO_WEIGHTS
   
-    with ops.name_scope(scope, 'discriminator_minimax_loss', (
+    with tf.name_scope(None, 'discriminator_minimax_loss', (
       discriminator_real_outputs, discriminator_gen_outputs, real_weights,
       generated_weights, label_smoothing)) as scope:
 
-    # -log((1 - label_smoothing) - sigmoid(D(x)))
-    loss_on_real = losses.sigmoid_cross_entropy(
-        array_ops.ones_like(discriminator_real_outputs),
-        discriminator_real_outputs, real_weights, label_smoothing, scope,
-        loss_collection=None, reduction=reduction)
-    # -log(- sigmoid(D(G(z,h))))
-    loss_on_generated = losses.sigmoid_cross_entropy(
-        array_ops.zeros_like(discriminator_gen_outputs),
-        discriminator_gen_outputs, generated_weights, scope=scope,
-        loss_collection=None, reduction=reduction)    
-    # -log(- sigmoid(D(G(z,h_hat))))
-    loss_mismatched = losses.sigmoid_cross_entropy(array_ops.zeros_like(discriminator_mismatched_outputs),
-        discriminator_mismatched_outputs, generated_weights, scope=scope,
-        loss_collection=None, reduction=reduction) 
- 
-    loss = loss_on_real + (loss_on_generated + loss_mismatched)/2
-    util.add_loss(loss, ops.GraphKeys.LOSSES)
+        # -log((1 - label_smoothing) - sigmoid(D(x)))
+        loss_on_real = tf.losses.sigmoid_cross_entropy(
+            tf.ones_like(discriminator_real_outputs),
+            discriminator_real_outputs, real_weights, label_smoothing, scope,
+            loss_collection=None, reduction=reduction)
+        # -log(- sigmoid(D(G(z,h))))
+        loss_on_generated = tf.losses.sigmoid_cross_entropy(
+            tf.zeros_like(discriminator_gen_outputs),
+            discriminator_gen_outputs, generated_weights, scope=scope,
+            loss_collection=None, reduction=reduction)    
+        # -log(- sigmoid(D(G(z,h_hat))))
+        loss_mismatched = tf.losses.sigmoid_cross_entropy(tf.zeros_like(discriminator_mismatched_outputs),
+            discriminator_mismatched_outputs, generated_weights, scope=scope,
+            loss_collection=None, reduction=reduction) 
+     
+        loss = loss_on_real + (loss_on_generated + loss_mismatched)/2
+        tf.losses.add_loss(loss, tf.GraphKeys.LOSSES)
 
     if add_summaries:
-        summary.scalar('discriminator_gen_minimax_loss', loss_on_generated)
-        summary.scalar('discriminator_real_minimax_loss', loss_on_real)
-        summary.scalar('discriminator_mismatched_minimax_loss', loss_mismatched)
-        summary.scalar('discriminator_minimax_loss', loss)
+        tf.summary.scalar('discriminator_gen_minimax_loss', loss_on_generated)
+        tf.summary.scalar('discriminator_real_minimax_loss', loss_on_real)
+        tf.summary.scalar('discriminator_mismatched_minimax_loss', loss_mismatched)
+        tf.summary.scalar('discriminator_minimax_loss', loss)
 
     return loss
 
@@ -172,6 +173,7 @@ def load_data(index, image_type='lr'):
     x = np.random.randint(12)
     y = np.random.randint(12)
     image = image[x:x+64,y:y+64,:]
+    image = image.astype(np.float32)
 
     # randomly flip left right w/ 50% probability
     flip = np.random.randint(2)
@@ -191,7 +193,7 @@ def load_data(index, image_type='lr'):
     # get wrong embeddings (of different class)
     wrong_index = np.random.randint(NUM_TRAINING_EXAMPLES)
     if img_class == CLASSES[wrong_index]:
-        wrong_index = (wrong_index + np.random.randint(100, 200))) % NUM_TRAINING_EXAMPLES
+        wrong_index = (wrong_index + np.random.randint(100, 200)) % NUM_TRAINING_EXAMPLES
     j = np.random.randint(10)
     mismatched_embedding = EMBEDDINGS[wrong_index][j,:]
 
@@ -241,13 +243,17 @@ if __name__=="__main__":
             for i in range(NUM_TRAINING_EXAMPLES):
                 yield i
 
-        dataset = Dataset.from_generator(gen, (tf.int32), (tf.TensorShape([]), tf.TensorShape([None])))
+        dataset = tf.data.Dataset.from_generator(gen, (tf.int32), (tf.TensorShape([])))
         dataset = dataset.map(map_fn, num_parallel_calls=4)
         dataset = dataset.repeat()
         dataset = dataset.batch(BATCH_SIZE)
-        iterator = dataset.make_initializable_iterator()    
+        iterator = dataset.make_one_shot_iterator()    
 
         batch_images, batch_embeddings, batch_mismatched_embeddings = iterator.get_next()
+
+        batch_images.set_shape([None,64,64,3])
+        batch_embeddings.set_shape([None,1024])
+        batch_mismatched_embeddings.set_shape([None,1024])
 
         # get randomly sampled noise/latent vector
         batch_z = tf.random_normal([BATCH_SIZE, Z_DIM])
@@ -258,7 +264,7 @@ if __name__=="__main__":
             batch_mismatched_conditioning_vectors, _ = get_conditioning_vector(batch_mismatched_embeddings, conditioning_vector_size=EMBEDDING_DIM)
 
         def custom_discriminator_loss_fn(gan_model, add_summaries=False):
-            return custom_discriminator_loss(gan_model, batch_mismatched_conditioning_vectors, add_summaries)
+            return custom_discriminator_loss(gan_model, batch_images, batch_mismatched_conditioning_vectors, add_summaries)
 
         model = tfgan.gan_model(
             generator_fn=generator_function,
@@ -268,7 +274,7 @@ if __name__=="__main__":
 
         loss = tfgan.gan_loss(model,
                 generator_loss_fn=generator_loss_function,
-                discriminator_loss_fn=custom_discriminator_loss_function)
+                discriminator_loss_fn=custom_discriminator_loss_fn)
 
         generator_optimizer = tf.train.AdamOptimizer(0.002, beta1=0.5)
         discriminator_optimizer = tf.train.AdamOptimizer(0.0002, beta1=0.5)
@@ -288,7 +294,6 @@ if __name__=="__main__":
         summary_hook = tf.train.SummarySaverHook(save_secs=300,output_dir=args.logdir,summary_op=summary_op)
 
         with tf.train.MonitoredTrainingSession(hooks=[summary_hook], checkpoint_dir=args.logdir) as sess:
-            sess.run(iterator.initializer)
             if NUM_STEPS < 0:
                 while True:
                     cur_loss, _ = train_step_fn(sess, gan_train_ops, global_step, train_step_kwargs={})
