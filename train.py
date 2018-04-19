@@ -10,6 +10,7 @@ from torch.utils.serialization import load_lua
 import argparse
 import random
 
+from tensorflow.python import debug as tf_debug
 tfgan = tf.contrib.gan
 
 from conditioning import get_conditioning_vector
@@ -31,7 +32,7 @@ IMAGE_SHAPE = 64
 
 # size factor for the KL-divergence regularization term
 # in the stage 1 generator loss
-KL_REG_LAMBDA = 2.0
+KL_REG_LAMBDA = 1.0
 
 #NUM_STEPS = 600
 NUM_STEPS = -1
@@ -64,11 +65,14 @@ def custom_generator_loss(gan_model, add_summaries=False):
     standard_generator_loss = tfgan.losses.modified_generator_loss(gan_model) 
 
     # gan_model.generator_inputs[2] is the KL divergence
-    reg_loss = KL_REG_LAMBDA * gan_model.generator_inputs[2] 
+    kl_div_loss = tf.multiply(KL_REG_LAMBDA, gan_model.generator_inputs[2], name="kl_div_loss") 
+    generator_loss = tf.add(standard_generator_loss, kl_div_loss, name="generator_loss")
 
-    custom_loss = tf.add(standard_generator_loss, reg_loss) 
+    if add_summaries:
+        tf.summary.scalar("kl_div_loss", kl_div_loss)
+        tf.summary.scalar("generator_loss", generator_loss) 
 
-    return custom_loss
+    return generator_loss
 
 # discriminator loss with mismatched pairs
 def custom_discriminator_loss(gan_model, real_data, batch_mismatched_conditioning_vectors, add_summaries=False):
@@ -80,7 +84,8 @@ def custom_discriminator_loss(gan_model, real_data, batch_mismatched_conditionin
     with tf.variable_scope('Discriminator', reuse=True):    
         discriminator_mismatched_outputs = gan_model.discriminator_fn(real_data, mismatched_inputs) 
 
-    label_smoothing=0.25
+    #label_smoothing=0.25
+    label_smoothing=0.2
     real_weights=1.0
     generated_weights=1.0
     reduction=tf.losses.Reduction.SUM_BY_NONZERO_WEIGHTS
@@ -101,7 +106,7 @@ def custom_discriminator_loss(gan_model, real_data, batch_mismatched_conditionin
             loss_collection=None, reduction=reduction)    
         # -log(- sigmoid(D(G(z,h_hat))))
         loss_mismatched = tf.losses.sigmoid_cross_entropy(tf.zeros_like(discriminator_mismatched_outputs),
-            discriminator_mismatched_outputs, generated_weights, scope=scope,
+            discriminator_mismatched_outputs, generated_weights, label_smoothing, scope=scope,
             loss_collection=None, reduction=reduction) 
      
         loss = loss_on_real + (loss_on_generated + loss_mismatched)/2
@@ -208,6 +213,8 @@ if __name__=="__main__":
     parser.add_argument('--num_steps', type=int, help='Number of steps to train for.', default=NUM_STEPS)
     parser.add_argument('--test_description', help='text description sentence to predict for in eval mode', default=None)
     parser.add_argument('--test_embedding', help='path to a test embedding to predict on when in eval mode', default=None)
+    parser.add_argument('--base_learning_rate', type=int, default=0.0002)
+    parser.add_argument('--debug', action='store_true')
 
     args = parser.parse_args()
 
@@ -255,13 +262,21 @@ if __name__=="__main__":
         batch_embeddings.set_shape([None,1024])
         batch_mismatched_embeddings.set_shape([None,1024])
 
-        # get randomly sampled noise/latent vector
-        batch_z = tf.random_normal([BATCH_SIZE, Z_DIM])
+        batch_images = tf.identity(batch_images, name="batch_images")
+        batch_embeddings = tf.identity(batch_embeddings, name="batch_embeddings")
+        batch_mismatched_embeddings = tf.identity(batch_mismatched_embeddings, name="batch_mismatched_embeddings")
+
+        # get randomly sampled noise/latent vector        
+        batch_z = tf.random_normal([BATCH_SIZE, Z_DIM], name="batch_z")
         # get conditioning vector (from embedding) and KL divergence for use as a
         # regularization term in the generator loss
         with tf.variable_scope("conditioning_augmentation", reuse=tf.AUTO_REUSE):
             batch_conditioning_vectors, kl_div = get_conditioning_vector(batch_embeddings, conditioning_vector_size=EMBEDDING_DIM)
             batch_mismatched_conditioning_vectors, _ = get_conditioning_vector(batch_mismatched_embeddings, conditioning_vector_size=EMBEDDING_DIM)
+
+        batch_conditioning_vectors = tf.identity(batch_conditioning_vectors, name="batch_conditioning_vectors")
+        kl_div = tf.identity(kl_div, name="kl_div")
+        batch_mismatched_conditioning_vectors = tf.identity(batch_mismatched_conditioning_vectors, name="batch_mismatched_conditioning_vectors")
 
         def custom_discriminator_loss_fn(gan_model, add_summaries=False):
             return custom_discriminator_loss(gan_model, batch_images, batch_mismatched_conditioning_vectors, add_summaries)
@@ -276,8 +291,20 @@ if __name__=="__main__":
                 generator_loss_fn=generator_loss_function,
                 discriminator_loss_fn=custom_discriminator_loss_fn)
 
-        generator_optimizer = tf.train.AdamOptimizer(0.002, beta1=0.5)
-        discriminator_optimizer = tf.train.AdamOptimizer(0.0002, beta1=0.5)
+        global_step = tf.train.get_or_create_global_step()
+        boundaries = list(range((NUM_TRAINING_EXAMPLES//BATCH_SIZE) * 100, (NUM_TRAINING_EXAMPLES//BATCH_SIZE) * 601, (NUM_TRAINING_EXAMPLES//BATCH_SIZE) * 100))
+        generator_lr_values = [args.base_learning_rate * (0.5)**i for i in range(6)]
+        discriminator_lr_values = [i for i in generator_lr_values] 
+
+        generator_learning_rate = tf.train.piecewise_constant(global_step, boundaries, generator_lr_values, name="generator_learning_rate")
+        discriminator_learning_rate = tf.train.piecewise_constant(global_step, boundaries, discriminator_lr_values, name="discriminator_learning_rate")
+
+        tf.summary.scalar("generator_learning_rate", generator_learning_rate)
+        tf.summary.scalar("discriminator_learning_rate", discriminator_learning_rate)
+
+        generator_optimizer = tf.train.AdamOptimizer(generator_learning_rate, beta1=0.5)
+        #discriminator_optimizer = tf.train.AdamOptimizer(discriminator_learning_rate, beta1=0.5)
+        discriminator_optimizer = tf.train.AdamOptimizer(discriminator_learning_rate, beta1=0.5)
 
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
         with tf.control_dependencies(update_ops):
@@ -293,7 +320,11 @@ if __name__=="__main__":
         summary_op = tf.summary.merge_all()
         summary_hook = tf.train.SummarySaverHook(save_secs=300,output_dir=args.logdir,summary_op=summary_op)
 
-        with tf.train.MonitoredTrainingSession(hooks=[summary_hook], checkpoint_dir=args.logdir) as sess:
+        hooks = [summary_hook]
+        if args.debug:
+            hooks.append(tf_debug.LocalCLIDebugHook())
+
+        with tf.train.MonitoredTrainingSession(hooks=hooks, checkpoint_dir=args.logdir) as sess:
             if NUM_STEPS < 0:
                 while True:
                     cur_loss, _ = train_step_fn(sess, gan_train_ops, global_step, train_step_kwargs={})

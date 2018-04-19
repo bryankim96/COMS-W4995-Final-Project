@@ -27,4 +27,7 @@ def get_conditioning_vector(embedding,conditioning_vector_size=128):
     ones = tf.constant(1.0, shape=[conditioning_vector_size])
     kl_div = tf.distributions.kl_divergence(dist, tf.contrib.distributions.MultivariateNormalDiag(loc=zeros, scale_diag=ones))
 
-    return conditioning_vector, kl_div
+    kl_loss = -log_sigma + .5 * (-1 + tf.exp(2. * log_sigma) + tf.square(mu))
+    kl_loss = tf.reduce_mean(kl_loss)
+
+    return conditioning_vector, kl_loss
